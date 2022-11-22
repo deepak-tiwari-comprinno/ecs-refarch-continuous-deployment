@@ -121,18 +121,29 @@ Resources:
           phases:
             pre_build:
               commands:
-                - $(aws ecr get-login --no-include-email)
-                - TAG="$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | head -c 8)"
-                - IMAGE_URI="${REPOSITORY_URI}:${TAG}"
+                - echo Logging in to Amazon ECR...
+                - aws --version
+                - $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
+                - REPOSITORY_URI=602192780151.dkr.ecr.ap-south-1.amazonaws.com/ecs-package-repository
+                - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+                - IMAGE_TAG=build-$(echo $CODEBUILD_BUILD_ID | awk -F":" '{print $2}')
             build:
               commands:
-                - docker build --tag "$IMAGE_URI" .
+                - echo Build started on `date`
+                - echo Building the Docker image...
+                - docker build -t $REPOSITORY_URI:latest .
+                - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
             post_build:
               commands:
-                - docker push "$IMAGE_URI"
-                - printf '[{"name":"simple-app","imageUri":"%s"}]' "$IMAGE_URI" > images.json
+                - echo Build completed on `date`
+                - echo Pushing the Docker images...
+                - docker push $REPOSITORY_URI:latest
+                - docker push $REPOSITORY_URI:$IMAGE_TAG
+                - echo Writing image definitions file...
+                - printf '[{"name":"nodeapp","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+                - cat imagedefinitions.json 
           artifacts:
-            files: images.json
+              files: imagedefinitions.json
       Environment:
         ComputeType: BUILD_GENERAL1_SMALL
         Image: aws/codebuild/docker:17.09.0
@@ -195,7 +206,7 @@ Resources:
               Configuration:
                 ClusterName: !Ref Cluster
                 ServiceName: !Ref Service
-                FileName: images.json
+                FileName: imagedefinitions.json
               InputArtifacts:
                 - Name: BuildOutput
               RunOrder: 1
